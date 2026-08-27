@@ -9,7 +9,7 @@ export const getHealth = async (_req: Request, res: Response) => {
     try {
       await getRedis().ping();
       isRedisConnected = true;
-    } catch (e) {
+    } catch {
       // redis error
     }
 
@@ -32,7 +32,7 @@ export const getHealth = async (_req: Request, res: Response) => {
         redis: "OK",
       },
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       success: false,
       message: "Internal Server Error",

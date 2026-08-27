@@ -69,7 +69,7 @@ class ServerApp {
         legacyHeaders: false,
         store: new RedisRateLimitStore({
           sendCommand: (...args: string[]) =>
-            getRedis().call(args[0], ...args.slice(1)) as any,
+            getRedis().call(args[0], ...args.slice(1)) as never,
         }),
       });
       this.app.use(limiter);

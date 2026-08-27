@@ -16,7 +16,7 @@ export const handleResponseError = (
   logger.error(error);
 
   const statusCode = error?.statusCode || 500;
-  const errorResponse: any = {
+  const errorResponse: unknown = {
     name: error?.name || "Error",
     message: error?.message || "Something went wrong",
     statusCode,
@@ -24,7 +24,7 @@ export const handleResponseError = (
   };
 
   if (isDev && error.stack) {
-    errorResponse.stack = error.stack;
+    errorResponse["stack"] = error.stack;
   }
 
   return res.status(statusCode).send({ error: errorResponse });

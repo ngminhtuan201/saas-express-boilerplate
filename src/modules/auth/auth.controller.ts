@@ -101,9 +101,7 @@ export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
   }
 
   const payload = authHelper.verifyVerificationToken(token);
-  const user = (await UserModel.findOne({ id: payload.userId })
-    .lean()
-    .exec()) as User;
+  const user = await UserModel.findOne({ id: payload.userId }).lean().exec();
 
   if (!user) {
     throw errors.Unauthorized;
@@ -134,15 +132,13 @@ export const refreshToken = catchAsync(async (req: Request, res: Response) => {
   }
 
   const payload = verifyRefreshToken(refreshTokenCookie);
-  const user = (await UserModel.findOne({ id: payload.userId })
-    .lean()
-    .exec()) as User;
+  const user = await UserModel.findOne({ id: payload.userId }).lean().exec();
 
   if (!user) {
     throw errors.Unauthorized;
   }
 
-  const jwtPayload = authHelper.extractJwtPayloadFromUser(user);
+  const jwtPayload = authHelper.extractJwtPayloadFromUser(user as User);
   const { accessToken, refreshToken } =
     authHelper.signResponseTokens(jwtPayload);
 
@@ -176,13 +172,13 @@ export const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
   const dto = req.body as UpdateProfileDto;
 
-  const updatedUser = (await UserModel.findOneAndUpdate(
+  const updatedUser = await UserModel.findOneAndUpdate(
     { id: currentUser.id },
     { $set: dto },
     { new: true },
   )
     .lean()
-    .exec()) as User;
+    .exec();
 
   return handleSuccess(res, { user: updatedUser });
 });
