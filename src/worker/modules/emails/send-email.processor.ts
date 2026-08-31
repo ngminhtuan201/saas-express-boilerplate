@@ -1,7 +1,10 @@
 import { Worker } from "bullmq";
 import { config } from "../../../config";
 import { logger } from "../../../libs";
-import { sendVerificationEmail } from "../../../modules/emails/email.service";
+import {
+  sendResetPasswordEmail,
+  sendVerificationEmail,
+} from "../../../modules/emails/email.service";
 import { ISendEmailJob } from "./send-email.job";
 import { SEND_EMAIL_QUEUE_NAME } from "./send-email.queue";
 
@@ -17,7 +20,9 @@ const worker = new Worker<ISendEmailJob>(
       logger.info(`Processing ${job.name}, job ${jobId}`);
 
       if (emailType === "verify") {
-        await sendVerificationEmail(receiver, payload?.token);
+        await sendVerificationEmail(receiver, payload?.url ?? payload?.token);
+      } else if (emailType === "reset-password") {
+        await sendResetPasswordEmail(receiver, payload?.url ?? payload?.token);
       }
 
       logger.info(`Processed ${job.name}, job ${jobId}`);

@@ -12,16 +12,31 @@ const transporter = nodemailer.createTransport({
 });
 
 export const sendVerificationEmail = async (
-  recevier: string,
-  token: string,
+  receiver: string,
+  url: string,
 ): Promise<void> => {
   await transporter.sendMail({
     from: config.RESEND_EMAIL_FROM,
-    to: recevier,
+    to: receiver,
     subject: "Verify your email",
     html: `
       <h1>Verify your email</h1>
-      <p>Please verify your email by clicking on the link: <a href="${config.APP_HOST}/api/auth/verify-email?token=${token}">Verify your email</a></p>
+      <p>Please verify your email by clicking on the link: <a href="${url}">Verify your email</a></p>
+    `,
+  });
+};
+
+export const sendResetPasswordEmail = async (
+  receiver: string,
+  url: string,
+): Promise<void> => {
+  await transporter.sendMail({
+    from: config.RESEND_EMAIL_FROM,
+    to: receiver,
+    subject: "Reset your password",
+    html: `
+      <h1>Reset your password</h1>
+      <p>Click on the link below to reset your password: <a href="${url}">Reset password</a></p>
     `,
   });
 };

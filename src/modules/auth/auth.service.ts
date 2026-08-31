@@ -1,3 +1,4 @@
+import { config } from "../../config";
 import { UserRole } from "../../enums";
 import { errors } from "../../errors";
 import { documentId, signVerificationToken } from "../../libs";
@@ -72,13 +73,15 @@ export const register = async (
     verificationTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
   };
 
+  const verificationUrl = `${config.APP_HOST}:${config.APP_PORT}/api/auth/verify?token=${verificationToken}`;
+
   await UserModel.create(newUser);
 
   addSendEmailJob({
     type: "verify",
     receiver: newUser.email,
     payload: {
-      token: verificationToken,
+      url: verificationUrl,
     },
   });
 

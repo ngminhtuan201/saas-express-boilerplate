@@ -46,6 +46,13 @@ export const config = {
   COOKIE_SECRET_KEY: requireValue("COOKIE_SECRET_KEY"),
   COOKIE_AUTH: requireValue("COOKIE_AUTH"),
 
+  // Better Auth
+  BETTER_AUTH_SECRET:
+    process.env.BETTER_AUTH_SECRET || process.env.COOKIE_SECRET_KEY,
+  BETTER_AUTH_BASE_URL:
+    process.env.BETTER_AUTH_BASE_URL ||
+    `${process.env.APP_HOST || "http://localhost"}:${+process.env.APP_PORT || 8000}`, // prettier-ignore
+
   // Resend
   RESEND_API_KEY: requireValue("RESEND_API_KEY"),
   RESEND_EMAIL_FROM: process.env.RESEND_EMAIL_FROM || "onboarding@resend.dev",
@@ -69,6 +76,12 @@ export const config = {
   R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
   R2_BUCKET: process.env.R2_BUCKET,
   R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
+
+  // Cloudinary
+  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
+  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
+  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+  CLOUDINARY_FOLDER: process.env.CLOUDINARY_FOLDER || "uploads",
 
   // Upload
   UPLOAD_SIZE_LIMIT: +process.env.UPLOAD_SIZE_LIMIT || 1024 * 1024 * 10,

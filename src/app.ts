@@ -15,10 +15,12 @@ import passport from "passport";
 import path from "path";
 import RedisRateLimitStore from "rate-limit-redis";
 import winston from "winston";
+import { toNodeHandler } from "better-auth/node";
 import { config } from "./config";
 import { connectToMongoDB, getRedis, initRedis } from "./dbs";
 import { StorageProvider } from "./enums";
 import {
+  getAuth,
   logger,
   morganRequestFailedHandler,
   morganRequestSuccessHandler,
@@ -159,6 +161,9 @@ class ServerApp {
       for (const route of apiRoutes) {
         this.app.use(`/api/${route.prefix}`, route.router);
       }
+
+      // Better Auth handler
+      this.app.all("/api/auth/*splat", toNodeHandler(getAuth()));
 
       // Swagger
       setupSwagger(this.app);
