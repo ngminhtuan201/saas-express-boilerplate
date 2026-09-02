@@ -1,75 +1,92 @@
-import { betterAuth } from "better-auth";
-import { mongodbAdapter } from "better-auth/adapters/mongodb";
-import mongoose from "mongoose";
-import { config } from "../config";
-import { addSendEmailJob } from "../worker/modules/emails/send-email.queue";
+import { Request } from "express";
+import {
+  Profile as GoogleProfile,
+  Strategy as GoogleStrategy,
+  VerifyCallback as GoogleVerifyCallback,
+} from "passport-google-oauth20";
+import passportJwt from "passport-jwt";
+import { Strategy as LocalStrategy } from "passport-local";
+import { UserModel } from "../models/User";
+import { config } from "./env";
+import { errors } from "./errors";
+import { JwtPayload } from "./jwt";
 
-const createAuth = () => {
-  const db = mongoose.connection.db;
-  if (!db) {
-    throw new Error("MongoDB connection not established before auth init");
+const extractJWTFromRequest = (req: Request): string | null => {
+  const authorization = req.headers?.authorization;
+  if (authorization) {
+    const [bearer, authToken] = authorization.split(" ");
+    if (bearer && bearer.toLowerCase() === "bearer" && authToken) {
+      return authToken;
+    }
+
+    return null;
   }
 
-  return betterAuth({
-    appName: config.APP_NAME,
-    secret: config.BETTER_AUTH_SECRET,
-    baseURL: config.BETTER_AUTH_BASE_URL,
-    trustedOrigins: [config.BETTER_AUTH_BASE_URL, ...config.CORS_ORIGINS],
-
-    database: mongodbAdapter(db, {
-      client: mongoose.connection.getClient(),
-      transaction: false,
-    }),
-
-    emailAndPassword: {
-      enabled: true,
-      minPasswordLength: 8,
-      maxPasswordLength: 64,
-      requireEmailVerification: true,
-      sendResetPassword: async ({ user, url, token }) => {
-        addSendEmailJob({
-          type: "reset-password",
-          receiver: user.email,
-          payload: { token, url },
-        });
-      },
-    },
-
-    emailVerification: {
-      sendOnSignUp: true,
-      autoSignInAfterVerification: true,
-      sendVerificationEmail: async ({ user, url, token }) => {
-        addSendEmailJob({
-          type: "verify",
-          receiver: user.email,
-          payload: { token, url },
-        });
-      },
-    },
-
-    socialProviders: {
-      google: {
-        clientId: config.GOOGLE_OAUTH_CLIENT_ID,
-        clientSecret: config.GOOGLE_OAUTH_CLIENT_SECRET,
-      },
-    },
-
-    rateLimit: {
-      enabled: true,
-      window: 60,
-      max: 100,
-    },
-  });
+  return null;
 };
 
-type AuthInstance = ReturnType<typeof createAuth>;
+export const passportJWTStrategy = new passportJwt.Strategy(
+  {
+    jwtFromRequest: extractJWTFromRequest,
+    algorithms: ["HS256"],
+    secretOrKey: config.JWT_ACCESS_TOKEN_SECRET,
+  },
+  async (payload: JwtPayload, done: passportJwt.VerifiedCallback) => {
+    try {
+      const { userId } = payload;
+      const user = await UserModel.findOne({ id: userId }).lean().exec();
 
-let authInstance: AuthInstance | undefined;
+      if (!user) {
+        return done(errors.Unauthorized);
+      }
 
-export const getAuth = (): AuthInstance => {
-  if (!authInstance) {
-    authInstance = createAuth();
-  }
+      if (!user.emailVerified) {
+        return done(errors.UnverifiedAccount);
+      }
 
-  return authInstance;
-};
+      done(null, user);
+    } catch (error) {
+      done(error);
+    }
+  },
+);
+
+export const passportGoogleStrategy = new GoogleStrategy(
+  {
+    clientID: config.GOOGLE_OAUTH_CLIENT_ID,
+    clientSecret: config.GOOGLE_OAUTH_CLIENT_SECRET,
+    callbackURL: config.GOOGLE_OAUTH_REDIRECT_URL,
+  },
+  async (
+    _accessToken: string,
+    _refreshToken: string,
+    profile: GoogleProfile,
+    done: GoogleVerifyCallback,
+  ) => {
+    try {
+      done(null, profile);
+    } catch (error) {
+      done(error);
+    }
+  },
+);
+
+export const passportLocalStrategy = new LocalStrategy(
+  {
+    usernameField: "username",
+    passwordField: "password",
+  },
+  (username: string, password: string, done) => {
+    try {
+      if (
+        username === config.BULL_BOARD_USERNAME &&
+        password === config.BULL_BOARD_PASSWORD
+      ) {
+        return done(null, { username });
+      }
+      return done(null, false, { message: "Invalid username or password" });
+    } catch (error) {
+      return done(error);
+    }
+  },
+);

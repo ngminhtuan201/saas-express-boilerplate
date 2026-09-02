@@ -1,5 +1,5 @@
-import { PaymentProvider } from "src/enums";
-import { CreatePaymentDto } from "../dtos";
+import { PaymentProvider } from "../../../enums/payment.enum";
+import { CreatePaymentDto } from "../dto/create-payment.dto";
 
 export interface PaymentSession {
   provider: PaymentProvider;

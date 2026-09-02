@@ -1,8 +1,9 @@
 // Modules
-import "./modules/emails/send-email.processor";
+import { connectToMongoDB } from "../dbs/mongodb";
+import { initRedis } from "../dbs/redis";
+import { logger } from "../libs/logger";
 
-import { connectToMongoDB, initRedis } from "../dbs";
-import { logger } from "../libs";
+import "./modules/send-email/send-email.processor";
 
 const startWorker = async () => {
   try {

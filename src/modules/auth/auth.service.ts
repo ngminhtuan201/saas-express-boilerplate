@@ -1,12 +1,21 @@
-import { config } from "../../config";
-import { UserRole } from "../../enums";
-import { errors } from "../../errors";
-import { documentId, signVerificationToken } from "../../libs";
-import { RefreshTokenModel, User, UserModel } from "../../models";
-import { AuthToken } from "../../types";
-import { addSendEmailJob } from "../../worker/modules/emails/send-email.queue";
-import { authHelper } from "./auth.helper";
-import { ManualLoginDto, ManualRegisterDto } from "./dtos";
+import { UserRole } from "../../enums/user.enum";
+import { config } from "../../libs/env";
+import { errors } from "../../libs/errors";
+import { documentId } from "../../libs/id";
+import { signVerificationToken } from "../../libs/jwt";
+import { SessionModel } from "../../models/Session";
+import { User, UserModel } from "../../models/User";
+import { addSendEmailJob } from "../../worker/modules/send-email/send-email.queue";
+import {
+  comparePassword,
+  extractJwtPayloadFromUser,
+  hashPassword,
+  isEmailTaken,
+  signAuthTokens,
+} from "./auth.helper";
+import { AuthToken } from "./auth.type";
+import { ManualLoginDto } from "./dto/manual-login.dto";
+import { ManualRegisterDto } from "./dto/manual-register.dto";
 
 export const login = async (
   loginDto: ManualLoginDto,
@@ -22,7 +31,7 @@ export const login = async (
     !user ||
     user.oauthProvider ||
     !user?.hashedPassword ||
-    !(await authHelper.comparePassword(password, user.hashedPassword))
+    !(await comparePassword(password, user.hashedPassword))
   ) {
     throw errors.InvalidCredentials;
   }
@@ -31,13 +40,12 @@ export const login = async (
     throw errors.UnverifiedAccount;
   }
 
-  const jwtPayload = authHelper.extractJwtPayloadFromUser(user);
-  const { accessToken, refreshToken } =
-    authHelper.signResponseTokens(jwtPayload);
+  const jwtPayload = extractJwtPayloadFromUser(user);
+  const { accessToken, refreshToken } = signAuthTokens(jwtPayload);
 
-  await RefreshTokenModel.create({
+  await SessionModel.create({
     userId: user.id,
-    token: refreshToken.token,
+    refreshToken: refreshToken.token,
     expiresAt: refreshToken.expiresAt,
   });
 
@@ -52,8 +60,7 @@ export const register = async (
   registerDto: ManualRegisterDto,
 ): Promise<boolean> => {
   const { email, password, fullName } = registerDto;
-  const isEmailTaken = await authHelper.isEmailTaken(email);
-  if (isEmailTaken) {
+  if (await isEmailTaken(email)) {
     throw errors.EmailTaken;
   }
 
@@ -68,7 +75,7 @@ export const register = async (
     emailVerified: false,
     fullName: fullName,
     role: UserRole.USER,
-    hashedPassword: await authHelper.hashPassword(password),
+    hashedPassword: await hashPassword(password),
     verificationToken: verificationToken,
     verificationTokenExpiry: new Date(Date.now() + 15 * 60 * 1000),
   };
@@ -78,7 +85,7 @@ export const register = async (
   await UserModel.create(newUser);
 
   addSendEmailJob({
-    type: "verify",
+    type: "verify-account",
     receiver: newUser.email,
     payload: {
       url: verificationUrl,

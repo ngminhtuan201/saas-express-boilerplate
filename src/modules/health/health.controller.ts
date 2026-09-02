@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import mongoose from "mongoose";
-import { getRedis } from "../../dbs";
+import { getRedis } from "../../dbs/redis";
 
 export const getHealth = async (_req: Request, res: Response) => {
   try {

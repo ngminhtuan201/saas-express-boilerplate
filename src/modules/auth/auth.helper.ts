@@ -1,13 +1,7 @@
 import bcrypt from "bcryptjs";
-import {
-  signAccessToken,
-  signRefreshToken,
-  signVerificationToken,
-  verifyVerificationToken,
-} from "../../libs";
-import { JwtPayload } from "../../libs/jwt";
-import { User, UserModel } from "../../models";
-import { AuthToken } from "../../types";
+import { JwtPayload, signAccessToken, signRefreshToken } from "../../libs/jwt";
+import { User, UserModel } from "../../models/User";
+import { AuthToken } from "./auth.type";
 
 export const hashPassword = async (password: string): Promise<string> => {
   const rounds = 10;
@@ -29,7 +23,7 @@ export const extractJwtPayloadFromUser = (user: User): JwtPayload => {
   };
 };
 
-const signResponseTokens = (
+export const signAuthTokens = (
   jwtPayload: JwtPayload,
 ): {
   accessToken: AuthToken;
@@ -41,16 +35,6 @@ const signResponseTokens = (
   };
 };
 
-const isEmailTaken = async (email: string): Promise<boolean> => {
+export const isEmailTaken = async (email: string): Promise<boolean> => {
   return !!(await UserModel.exists({ email: email }));
-};
-
-export const authHelper = {
-  extractJwtPayloadFromUser,
-  hashPassword,
-  comparePassword,
-  signResponseTokens,
-  isEmailTaken,
-  signVerificationToken,
-  verifyVerificationToken,
 };

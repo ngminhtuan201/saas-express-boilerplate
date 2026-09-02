@@ -1,3 +1,4 @@
+import type {} from "./types/express";
 import { createBullBoard } from "@bull-board/api";
 import { BullMQAdapter } from "@bull-board/api/bullMQAdapter";
 import { ExpressAdapter } from "@bull-board/express";
@@ -5,42 +6,40 @@ import { RedisStore } from "connect-redis";
 import cookieParser from "cookie-parser";
 import cors from "cors";
 import express from "express";
-// import ExpressMongoSanitize from "express-mongo-sanitize";
-import rateLimit from "express-rate-limit";
 import expressSession from "express-session";
 import helmet from "helmet";
 import http from "http";
 import mongoose from "mongoose";
 import passport from "passport";
 import path from "path";
-import RedisRateLimitStore from "rate-limit-redis";
 import winston from "winston";
-import { toNodeHandler } from "better-auth/node";
-import { config } from "./config";
-import { connectToMongoDB, getRedis, initRedis } from "./dbs";
-import { StorageProvider } from "./enums";
+
+import { connectToMongoDB } from "./dbs/mongodb";
+import { getRedis, initRedis } from "./dbs/redis";
+import { StorageProvider } from "./enums/storage.enum";
+import { setupSwagger } from "./libs/api-docs";
 import {
-  getAuth,
-  logger,
-  morganRequestFailedHandler,
-  morganRequestSuccessHandler,
   passportGoogleStrategy,
   passportJWTStrategy,
   passportLocalStrategy,
-} from "./libs";
-import { handleResponseError } from "./middlewares";
-import { contextMiddleware } from "./middlewares/context.middleware";
-import { setupSwagger } from "./swagger";
+} from "./libs/auth";
+import { config } from "./libs/env";
+import { logger } from "./libs/logger";
+import { logFailedRequest, logSuccessRequest } from "./libs/request";
+import { apiLimiter } from "./middlewares/rate-limit";
+import { applyRequestContext } from "./middlewares/request-context";
+import { handleResponseError } from "./middlewares/response-error";
+import { noSqlInjectionSanitizer, xssSanitizer } from "./middlewares/security";
 
 // Worker modules
-import { sendEmailQueue } from "./worker/modules/emails/send-email.queue";
+import { sendEmailQueue } from "./worker/modules/send-email/send-email.queue";
 
 // API routes
-import { adminRouter } from "./modules/admin/admin.route";
 import { authRouter } from "./modules/auth/auth.route";
 import { healthRouter } from "./modules/health/health.route";
 import { paymentRouter } from "./modules/payments/payment.route";
 import { uploadRouter } from "./modules/upload/upload.route";
+import { userRouter } from "./modules/users/user.route";
 
 class ServerApp {
   private app: express.Application;
@@ -61,40 +60,38 @@ class ServerApp {
 
       // Security
       this.app.use(helmet());
-      this.app.use(contextMiddleware);
-
-      // Rate limiting
-      const limiter = rateLimit({
-        windowMs: 15 * 60 * 1000, // 15 minutes
-        max: 100, // limit each IP to 100 requests per windowMs
-        standardHeaders: true,
-        legacyHeaders: false,
-        store: new RedisRateLimitStore({
-          sendCommand: (...args: string[]) =>
-            getRedis().call(args[0], ...args.slice(1)) as never,
-        }),
-      });
-      this.app.use(limiter);
+      this.app.use(applyRequestContext);
 
       // Cors
       const corsOrigins = config.CORS_ORIGINS;
       this.app.use(cors({ origin: corsOrigins, credentials: true }));
 
+      // Body parsers with rawBody support
       this.app.use(cookieParser());
+      this.app.use(express.urlencoded({ extended: true }));
+      this.app.use(
+        express.json({
+          verify: (
+            req: express.Request,
+            _res: express.Response,
+            buf: Buffer,
+          ) => {
+            req.rawBody = buf;
+          },
+        }),
+      );
+
+      // NoSQL injection & XSS sanitization
+      this.app.use(noSqlInjectionSanitizer);
+      this.app.use(xssSanitizer);
+
+      // Session
       this.app.use(
         expressSession({
           store: new RedisStore({ client: getRedis(), prefix: "sess:" }),
           secret: config.COOKIE_SECRET_KEY,
           saveUninitialized: false,
           resave: false,
-        }),
-      );
-      this.app.use(express.urlencoded({ extended: true }));
-      this.app.use(
-        express.json({
-          verify: (req, _res, buf) => {
-            req["rawBody"] = buf;
-          },
         }),
       );
 
@@ -113,10 +110,6 @@ class ServerApp {
       await connectToMongoDB();
       this.logger.info("📦 [mongodb] Connection initialized successfully");
 
-      // MongoDB sanitize
-      // https://stackoverflow.com/questions/79787302/cannot-set-property-query-of-incomingmessage-which-has-only-a-getter-when-u
-      // this.app.use(ExpressMongoSanitize());
-
       // Passport
       this.app.use(passport.initialize());
       this.app.use(passport.session());
@@ -127,26 +120,21 @@ class ServerApp {
         done(null, user);
       });
       passport.deserializeUser((user, done) => {
-        done(null, user);
+        done(null, user as Express.User);
       });
 
       // Request logger
-      this.app.use(morganRequestSuccessHandler);
-      this.app.use(morganRequestFailedHandler);
+      this.app.use(logSuccessRequest);
+      this.app.use(logFailedRequest);
 
-      // API routers
+      // Health endpoint (exempt from API rate limiting)
+      this.app.use("/api/health", healthRouter);
+
+      // API routers with rate limiting
       const apiRoutes: Array<{ prefix: string; router: express.Router }> = [
-        {
-          prefix: "health",
-          router: healthRouter,
-        },
         {
           prefix: "auth",
           router: authRouter,
-        },
-        {
-          prefix: "admin",
-          router: adminRouter,
         },
         {
           prefix: "payments",
@@ -156,22 +144,19 @@ class ServerApp {
           prefix: "upload",
           router: uploadRouter,
         },
+        {
+          prefix: "users",
+          router: userRouter,
+        },
       ];
 
+      // Apply rate limiting middleware to each API route
       for (const route of apiRoutes) {
-        this.app.use(`/api/${route.prefix}`, route.router);
+        this.app.use(`/api/${route.prefix}`, apiLimiter, route.router);
       }
-
-      // Better Auth handler
-      this.app.all("/api/auth/*splat", toNodeHandler(getAuth()));
 
       // Swagger
       setupSwagger(this.app);
-
-      this.logger.info("🌐 [server] Router initialized successfully");
-
-      // Error handler
-      this.app.use(handleResponseError);
 
       // Bull board
       this.app.set("views", path.join(__dirname, "../views"));
@@ -192,7 +177,7 @@ class ServerApp {
       this.app.post("/admin/queues/login", (req, res, next) => {
         passport.authenticate(
           "local",
-          (err: Error, user: unknown, _info: unknown) => {
+          (err: Error | null, user: unknown, _info: unknown) => {
             if (err) {
               return next(err);
             }
@@ -229,21 +214,28 @@ class ServerApp {
         serverAdapter.getRouter(),
       );
 
-      // Server
+      this.logger.info(
+        "🌐 [server] Routers and Bull-board initialized successfully",
+      );
+
+      // Error handler mounted at the end of all routes
+      this.app.use(handleResponseError);
+
+      // Server listen
       const host = config.APP_HOST;
       const port = config.APP_PORT;
       this.server = http.createServer(this.app);
       this.server.listen(port);
 
       this.logger.info(`⚡️ [server] Server is listening at ${host}:${port}`);
-
       this.logger.info(
         "🎉 [server] All initialization steps completed successfully",
       );
 
       this.setupGracefulShutdown();
     } catch (error) {
-      this.logger.info(`❌ [server] Server initialized failed\n${error}`);
+      this.logger.error(`❌ [server] Server initialization failed\n${error}`);
+      process.exit(1);
     }
   }
 
@@ -255,6 +247,13 @@ class ServerApp {
       if (this.server) {
         this.server.close(async () => {
           this.logger.info("🛑 [server] HTTP server closed.");
+
+          try {
+            await sendEmailQueue.close();
+            this.logger.info("🛑 [bullmq] Queue connections closed.");
+          } catch {
+            // ignore
+          }
 
           await mongoose.disconnect();
           this.logger.info("🛑 [mongodb] Connection closed.");

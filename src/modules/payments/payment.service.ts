@@ -2,11 +2,11 @@ import {
   PaymentProvider,
   TransactionStatus,
   TransactionType,
-} from "../../enums";
-import { documentId } from "../../libs";
-import { Transaction, TransactionModel } from "../../models";
-import { PaymentSession } from "./adapters";
-import { CreatePaymentDto } from "./dtos";
+} from "../../enums/payment.enum";
+import { documentId } from "../../libs/id";
+import { Transaction, TransactionModel } from "../../models/Transaction";
+import { PaymentSession } from "./adapters/interface";
+import { CreatePaymentDto } from "./dto/create-payment.dto";
 import { PaymentAdapterFactory } from "./payment.helper";
 
 export const createPaymentSession = async (

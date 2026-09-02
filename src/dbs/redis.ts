@@ -1,6 +1,6 @@
 import IORedis from "ioredis";
-import { config } from "../config";
-import { logger } from "../libs";
+import { config } from "../libs/env";
+import { logger } from "../libs/logger";
 
 let redis: IORedis | null = null;
 
@@ -14,6 +14,12 @@ export const initRedis = (): IORedis => {
     port: config.REDIS_PORT,
     username: config.REDIS_USERNAME,
     password: config.REDIS_PASSWORD,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    retryStrategy: (times) => {
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    },
   });
 
   redis.on("connect", () => {
@@ -29,7 +35,7 @@ export const initRedis = (): IORedis => {
 
 export const getRedis = (): IORedis => {
   if (!redis) {
-    throw new Error("Redis not initialized");
+    return initRedis();
   }
   return redis;
 };

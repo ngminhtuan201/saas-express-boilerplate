@@ -1,5 +1,5 @@
 import nodemailer from "nodemailer";
-import { config } from "../../config";
+import { config } from "../../libs/env";
 
 const transporter = nodemailer.createTransport({
   host: "smtp.resend.com",
@@ -11,7 +11,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export const sendVerificationEmail = async (
+export const sendVerifyAccountEmail = async (
   receiver: string,
   url: string,
 ): Promise<void> => {

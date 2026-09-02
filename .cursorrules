@@ -1,0 +1,40 @@
+# Express TypeScript Boilerplate - Cursor & AI Rules
+
+You are an expert backend engineer working on this Express.js TypeScript SaaS boilerplate.
+Follow the architectural guidelines and engineering rules detailed below and in AGENTS.md.
+
+## Core Rules
+
+1. **Architecture Layering**:
+   - Always follow: `Route ➔ Controller ➔ Service ➔ Helper/Adapter ➔ Model`.
+   - Never put business logic or DB calls in Controllers.
+   - Never import Express `req`/`res` in Services.
+   - Place all new feature code inside `src/modules/<feature>/`.
+
+2. **Controller Pattern**:
+   - Wrap all async controllers with `catchAsync` from `src/libs/request`.
+   - Format success responses using `handleSuccessResponse(res, data, statusCode, message)` from `src/libs/response`.
+   - Always sanitize user outputs with `sanitizeUser(user)` from `src/modules/users/user.helper`.
+   - Throw errors using `errors.<Name>` or `errors.Custom(...)` from `src/libs/errors`.
+
+3. **Validation & DTOs**:
+   - Define Joi schemas and DTO types in `src/modules/<feature>/dto/<action>.dto.ts`.
+   - Validate requests using `validateRequest({ body, query, params })` middleware.
+
+4. **TypeScript Strict Mode**:
+   - `"strict": true` is strictly enforced. Never use `any`.
+   - Properly type all functions, parameters, and return types.
+
+5. **Security & Rate Limiting**:
+   - Sensitive auth routes: attach `authLimiter`.
+   - Upload routes: attach `uploadLimiter` and use `uploader` from `src/libs/upload`.
+   - Standard APIs: mount under `apiLimiter`.
+   - NoSQL injection and XSS sanitizers are globally applied in `app.ts`.
+
+6. **Database & Models**:
+   - Interfaces extend `BaseModel` (`id`, `createdAt`, `updatedAt`).
+   - Use `documentId()` from `src/libs/id` for `id`.
+   - Declare schema indexes before `mongoose.model(...)`.
+
+7. **Verification**:
+   - Always run `npm run build` and `npm run lint` after making changes to verify zero errors and warnings.

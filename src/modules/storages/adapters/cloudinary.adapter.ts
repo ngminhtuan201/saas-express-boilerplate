@@ -1,6 +1,7 @@
 import { v2 as cloudinary, UploadApiResponse } from "cloudinary";
-import { config } from "../../../config";
-import { logger } from "../../../libs";
+import { config } from "../../../libs/env";
+import { logger } from "../../../libs/logger";
+import { sanitizeFileName } from "../../../libs/upload";
 import { IStorageAdapter, UploadFile, UploadFileResult } from "./interface";
 
 export class CloudinaryStorageAdapter implements IStorageAdapter {
@@ -18,7 +19,8 @@ export class CloudinaryStorageAdapter implements IStorageAdapter {
   }
 
   async uploadFile(file: UploadFile): Promise<UploadFileResult> {
-    const publicId = `${this._folder}/${Date.now()}-${file.file.originalname}`;
+    const sanitized = sanitizeFileName(file.file.originalname);
+    const publicId = `${this._folder}/${Date.now()}-${sanitized}`;
 
     const result = await new Promise<UploadApiResponse>((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(

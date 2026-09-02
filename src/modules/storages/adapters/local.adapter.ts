@@ -1,7 +1,8 @@
 import fs from "fs/promises";
 import path from "path";
-import { config } from "../../../config";
-import { logger } from "../../../libs";
+import { config } from "../../../libs/env";
+import { logger } from "../../../libs/logger";
+import { sanitizeFileName } from "../../../libs/upload";
 import { IStorageAdapter, UploadFile, UploadFileResult } from "./interface";
 
 export class LocalStorageAdapter implements IStorageAdapter {
@@ -12,7 +13,8 @@ export class LocalStorageAdapter implements IStorageAdapter {
   }
 
   async uploadFile(file: UploadFile): Promise<UploadFileResult> {
-    const key = `${Date.now()}-${file.file.originalname}`;
+    const sanitized = sanitizeFileName(file.file.originalname);
+    const key = `${Date.now()}-${sanitized}`;
     const filePath = path.join(this._rootDir, key);
 
     await fs.writeFile(filePath, file.file.buffer);

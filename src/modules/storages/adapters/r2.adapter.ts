@@ -3,8 +3,9 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
-import { config } from "../../../config";
-import { logger } from "../../../libs";
+import { config } from "../../../libs/env";
+import { logger } from "../../../libs/logger";
+import { sanitizeFileName } from "../../../libs/upload";
 import { IStorageAdapter, UploadFile, UploadFileResult } from "./interface";
 
 export class R2StorageAdapter implements IStorageAdapter {
@@ -16,17 +17,18 @@ export class R2StorageAdapter implements IStorageAdapter {
       region: "auto",
       endpoint: `https://${config.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: config.R2_ACCESS_KEY_ID,
-        secretAccessKey: config.R2_SECRET_ACCESS_KEY,
+        accessKeyId: config.R2_ACCESS_KEY_ID || "",
+        secretAccessKey: config.R2_SECRET_ACCESS_KEY || "",
       },
     });
-    this._bucket = config.R2_BUCKET;
+    this._bucket = config.R2_BUCKET || "";
 
     logger.info("📦 [storage] Cloudflare R2 storage adapter initialized");
   }
 
   async uploadFile(file: UploadFile): Promise<UploadFileResult> {
-    const key = `${Date.now()}-${file.file.originalname}`;
+    const sanitized = sanitizeFileName(file.file.originalname);
+    const key = `${Date.now()}-${sanitized}`;
 
     await this._client.send(
       new PutObjectCommand({

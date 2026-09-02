@@ -1,5 +1,6 @@
-import { PaymentProvider } from "../../enums";
-import { IPaymentAdapter, StripePaymentAdapter } from "./adapters";
+import { PaymentProvider } from "../../enums/payment.enum";
+import { IPaymentAdapter } from "./adapters/interface";
+import { StripePaymentAdapter } from "./adapters/stripe.adapter";
 
 export class PaymentAdapterFactory {
   private static adapters: Map<string, IPaymentAdapter> = new Map();

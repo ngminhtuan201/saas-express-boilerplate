@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
-import { errors } from "../../errors";
-import { catchAsync, handleSuccess } from "../../libs";
+import { errors } from "../../libs/errors";
+import { catchAsync } from "../../libs/request";
+import { handleSuccessResponse } from "../../libs/response";
 import * as uploadService from "./upload.service";
 
 export const uploadFile = catchAsync(async (req: Request, res: Response) => {
@@ -11,5 +12,5 @@ export const uploadFile = catchAsync(async (req: Request, res: Response) => {
   }
 
   const result = await uploadService.uploadFile({ file });
-  return handleSuccess(res, { ...result });
+  return handleSuccessResponse(res, { ...result });
 });

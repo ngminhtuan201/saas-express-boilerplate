@@ -1,20 +1,25 @@
 import { Request, Response } from "express";
 import { Profile as GoogleProfile } from "passport-google-oauth20";
-import { config } from "../../config";
-import { UserOAuthProvider, UserRole } from "../../enums";
-import { errors } from "../../errors";
+import { UserOAuthProvider, UserRole } from "../../enums/user.enum";
+import { config } from "../../libs/env";
+import { errors } from "../../libs/errors";
+import { documentId } from "../../libs/id";
 import {
-  catchAsync,
-  documentId,
-  getCurrentUser,
-  handleSuccess,
+  signAuthTokens,
   verifyRefreshToken,
-} from "../../libs";
-import { RefreshTokenModel, User, UserModel } from "../../models";
-import { AuthToken } from "../../types";
-import { authHelper } from "./auth.helper";
+  verifyVerificationToken,
+} from "../../libs/jwt";
+import { catchAsync, getCurrentUser } from "../../libs/request";
+import { handleSuccessResponse } from "../../libs/response";
+import { Session, SessionModel } from "../../models/Session";
+import { User, UserModel } from "../../models/User";
+import { sanitizeUser } from "../users/user.helper";
+import { extractJwtPayloadFromUser } from "./auth.helper";
 import { login, register } from "./auth.service";
-import { ManualLoginDto, ManualRegisterDto, UpdateProfileDto } from "./dtos";
+import { AuthToken } from "./auth.type";
+import { ManualLoginDto } from "./dto/manual-login.dto";
+import { ManualRegisterDto } from "./dto/manual-register.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 
 const isProduction = process.env.NODE_ENV === "production";
 
@@ -30,13 +35,17 @@ const setAuthCookie = async (res: Response, refreshToken: AuthToken) => {
 
 export const handleGoogleCallback = catchAsync(
   async (req: Request, res: Response) => {
-    const googleProfile: GoogleProfile = req.user as GoogleProfile;
-    if (!googleProfile) {
+    const googleProfile = req.user as unknown as GoogleProfile;
+    if (!googleProfile || !googleProfile.emails?.[0]?.value) {
       throw errors.Unauthorized;
     }
 
+    const email = googleProfile.emails[0].value;
+    const isEmailVerified = Boolean(googleProfile.emails[0].verified ?? true);
+    const photoUrl = googleProfile.photos?.[0]?.value;
+
     let user = (await UserModel.findOne({
-      email: googleProfile.emails[0].value,
+      email,
     })
       .lean()
       .exec()) as User;
@@ -44,14 +53,14 @@ export const handleGoogleCallback = catchAsync(
     if (!user) {
       user = {
         id: documentId(),
-        email: googleProfile.emails[0].value,
-        emailVerified: googleProfile.emails[0].verified,
-        fullName: googleProfile.displayName,
-        avatarUrl: googleProfile.photos[0].value,
+        email,
+        emailVerified: isEmailVerified,
+        fullName: googleProfile.displayName || "Google User",
+        avatarUrl: photoUrl,
         role: UserRole.USER,
         oauthId: googleProfile.id,
         oauthProvider: UserOAuthProvider.GOOGLE,
-        oauthAvatarUrl: googleProfile.photos[0].value,
+        oauthAvatarUrl: photoUrl,
       };
 
       await UserModel.create(user);
@@ -61,19 +70,23 @@ export const handleGoogleCallback = catchAsync(
       throw errors.UnverifiedAccount;
     }
 
-    const jwtPayload = authHelper.extractJwtPayloadFromUser(user);
-    const { accessToken, refreshToken } =
-      authHelper.signResponseTokens(jwtPayload);
+    const jwtPayload = extractJwtPayloadFromUser(user);
+    const { accessToken, refreshToken } = signAuthTokens(jwtPayload);
 
-    await RefreshTokenModel.create({
+    const newSession: Session = {
       userId: user.id,
-      token: refreshToken.token,
+      refreshToken: refreshToken.token,
       expiresAt: refreshToken.expiresAt,
-    });
+    };
+
+    await SessionModel.create(newSession);
 
     setAuthCookie(res, refreshToken);
 
-    return handleSuccess(res, { accessToken, user });
+    return handleSuccessResponse(res, {
+      accessToken,
+      user: sanitizeUser(user),
+    });
   },
 );
 
@@ -84,13 +97,18 @@ export const manualLogin = catchAsync(async (req: Request, res: Response) => {
 
   setAuthCookie(res, refreshToken);
 
-  return handleSuccess(res, { accessToken, user });
+  return handleSuccessResponse(res, { accessToken, user: sanitizeUser(user) });
 });
 
 export const manualRegister = catchAsync(
   async (req: Request, res: Response) => {
     await register(req.body as ManualRegisterDto);
-    return handleSuccess(res, null);
+    return handleSuccessResponse(
+      res,
+      null,
+      201,
+      "Registration successful. Please verify your email.",
+    );
   },
 );
 
@@ -100,7 +118,7 @@ export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
     throw errors.Unauthorized;
   }
 
-  const payload = authHelper.verifyVerificationToken(token);
+  const payload = verifyVerificationToken(token);
   const user = await UserModel.findOne({ id: payload.userId }).lean().exec();
 
   if (!user) {
@@ -108,7 +126,7 @@ export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
   }
 
   if (user.emailVerified) {
-    return handleSuccess(res, null);
+    return handleSuccessResponse(res, null, 200, "Email already verified.");
   }
 
   await UserModel.updateOne(
@@ -116,13 +134,15 @@ export const verifyEmail = catchAsync(async (req: Request, res: Response) => {
     {
       $set: {
         emailVerified: true,
-        verificationToken: undefined,
-        verificationTokenExpiry: undefined,
+      },
+      $unset: {
+        verificationToken: 1,
+        verificationTokenExpiry: 1,
       },
     },
   );
 
-  return handleSuccess(res, null);
+  return handleSuccessResponse(res, null, 200, "Email verified successfully.");
 });
 
 export const refreshToken = catchAsync(async (req: Request, res: Response) => {
@@ -132,44 +152,63 @@ export const refreshToken = catchAsync(async (req: Request, res: Response) => {
   }
 
   const payload = verifyRefreshToken(refreshTokenCookie);
+
+  // Verify session exists in DB to prevent reuse of revoked tokens
+  const existingSession = await SessionModel.findOne({
+    refreshToken: refreshTokenCookie,
+  })
+    .lean()
+    .exec();
+
+  if (!existingSession) {
+    throw errors.Unauthorized;
+  }
+
   const user = await UserModel.findOne({ id: payload.userId }).lean().exec();
 
   if (!user) {
     throw errors.Unauthorized;
   }
 
-  const jwtPayload = authHelper.extractJwtPayloadFromUser(user as User);
-  const { accessToken, refreshToken } =
-    authHelper.signResponseTokens(jwtPayload);
+  const jwtPayload = extractJwtPayloadFromUser(user as User);
+  const { accessToken, refreshToken } = signAuthTokens(jwtPayload);
 
-  await RefreshTokenModel.updateOne(
-    { token: refreshTokenCookie },
-    { $set: { token: refreshToken.token, expiresAt: refreshToken.expiresAt } },
+  await SessionModel.updateOne(
+    { refreshToken: refreshTokenCookie },
+    {
+      $set: {
+        refreshToken: refreshToken.token,
+        expiresAt: refreshToken.expiresAt,
+      },
+    },
   );
 
   setAuthCookie(res, refreshToken);
 
-  return handleSuccess(res, { accessToken });
+  return handleSuccessResponse(res, { accessToken });
 });
 
 export const logout = catchAsync(async (req: Request, res: Response) => {
   const refreshTokenCookie = req.cookies[config.COOKIE_AUTH];
-  if (!refreshTokenCookie) {
-    throw errors.Unauthorized;
+  if (refreshTokenCookie) {
+    await SessionModel.deleteOne({ refreshToken: refreshTokenCookie });
+    res.clearCookie(config.COOKIE_AUTH);
   }
 
-  await RefreshTokenModel.deleteOne({ token: refreshTokenCookie });
-  res.clearCookie(config.COOKIE_AUTH);
-
-  return handleSuccess(res, null);
+  return handleSuccessResponse(res, null, 200, "Logged out successfully.");
 });
 
 export const getMe = catchAsync((req: Request, res: Response) => {
-  return handleSuccess(res, { user: getCurrentUser(req) });
+  const user = getCurrentUser(req);
+  return handleSuccessResponse(res, { user: user ? sanitizeUser(user) : null });
 });
 
 export const updateProfile = catchAsync(async (req: Request, res: Response) => {
   const currentUser = getCurrentUser(req);
+  if (!currentUser) {
+    throw errors.Unauthorized;
+  }
+
   const dto = req.body as UpdateProfileDto;
 
   const updatedUser = await UserModel.findOneAndUpdate(
@@ -180,5 +219,7 @@ export const updateProfile = catchAsync(async (req: Request, res: Response) => {
     .lean()
     .exec();
 
-  return handleSuccess(res, { user: updatedUser });
+  return handleSuccessResponse(res, {
+    user: updatedUser ? sanitizeUser(updatedUser as User) : null,
+  });
 });
